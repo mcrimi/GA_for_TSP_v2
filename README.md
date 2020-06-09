@@ -7,7 +7,6 @@ This script takes a TSP standard file an attempts to solve the travelling salesm
 
 ## Requirements
 Python 3.7
-*Libraries*
 tsplib95
 tkinter
 scypy
