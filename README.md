@@ -14,7 +14,7 @@ scypy
 
 ## Run the script
 1) Install required libraries
-2) Run the script
+2) Directly run the script (TSP.py) or open the VS solution (TSP.sln) and run.
 3) Select a valid TSP file (Djbuti and Qatar are added to this repository
 
 ## Algorithm
