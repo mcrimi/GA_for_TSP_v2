@@ -6,10 +6,11 @@ Genetic Optimization Algorithm for Travelling Salesman Problems
 This script takes a TSP standard file an attempts to solve the travelling salesman problem described in the file using genetic algorithms
 
 ## Requirements
-Python 3.7
-tsplib95
-tkinter
-scypy
+1. Python 3.7
+2. Libraries
+   - tsplib95
+   - tkinter
+   - scypy
 
 ## Run the script
 1) Install required libraries
