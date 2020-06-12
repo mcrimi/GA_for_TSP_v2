@@ -25,7 +25,7 @@ INIT_POPULATION_SIZE= 500
 POPULATION_SIZE = 200
 
 # Maximum number of iterations
-MAX_ITERATIONS = 500
+MAX_ITERATIONS = 300
 
 # Percentage of crossing between top performant individuals
 MATING_RATE=1
