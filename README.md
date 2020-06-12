@@ -48,7 +48,7 @@ MAX_ITERATIONS = 500
 
 ## Results
 
-**Djbouti**
+### Djbouti
 
 Genes: [20, 23, 26, 25, 22, 24, 15, 13, 9, 8, 7, 3, 5, 11, 12, 28, 37, 38, 33, 34, 36, 31, 27, 19, 18, 17, 16, 6, 4, 2, 1, 10, 14, 21, 29, 30, 32, 35]	
 Best Fitness: 7684	
@@ -56,11 +56,12 @@ Pop. Individuals: 400
 Evaluations: 269796	T
 ime (seconds): 86.76117780000004
 
-**Convergence curve**
+Convergence curve
+
 ![Djbouti](https://github.com/mcrimi/GA_for_TSP_v2/blob/master/Djbouti_convergence.png?raw=true)
 
 
-**Qatar**
+### Qatar
 
 ![Qatar](https://github.com/mcrimi/GA_for_TSP_v2/blob/master/Djbouti_convergence.png?raw=true)
 
