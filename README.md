@@ -37,7 +37,7 @@ Percentage of the crosse altered by random mutations= 0.15
 Next generation selection strategy: Elitism (top ranking individuals)
 
 ## Stopping criterion
-MAX_ITERATIONS = 500
+MAX_ITERATIONS = 300
 
 
 ## Ideas for extension
