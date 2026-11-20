@@ -1,72 +1,112 @@
-# GA_for_TSP_v2
-Genetic Optimization Algorithm for Travelling Salesman Problems
--Mariano Crimi
+# Breeding a shorter route
 
-## Description
-This script takes a TSP standard file an attempts to solve the travelling salesman problem described in the file using genetic algorithms
+[![CI](https://github.com/mcrimi/GA_for_TSP_v2/actions/workflows/ci.yml/badge.svg)](https://github.com/mcrimi/GA_for_TSP_v2/actions/workflows/ci.yml)
 
-## Requirements
-1. Python 3.7
-2. Libraries
-   - tsplib95
-   - tkinter
-   - scypy
+A genetic algorithm for the travelling salesman problem, and a test of the plant-breeding idea
+I built into it in 2020.
 
-## Run the script
-1) Install required libraries
-2) Directly run the script **TSP\TSP.py** or open the VS solution (TSP.sln) and run.
-3) Select a valid TSP file (Djbuti and Qatar are added to this repository
+**[Run it in your browser](https://marianocrimi.com/tsp/)** · **[Read the analysis](https://marianocrimi.com/tsp/report/)**
 
-## Algorithm
-Rationale for GA
-Given that TSP's are in essence discrete optimization problems, GA seemed to be best heuristic solve the problem.  
+![The page: a tour of Qatar being bred, with its progress and population](docs/page.png)
 
-The genetic algorithm attempts to resolve the travelling salesman problem using partially mapped crossover as the crossover operations to avoid unfeasible solutions. With these operator we get two offsprings from which we kepp the one with the best fit. In terms of selection criteria the algorithm is parameterized to perform both elitism and tournament selections. 
-Maybe the "novelty" introduced by my algorithm is that the # of indiviudals kept in each generation is decreasing as the process reaches the maximum number of iterations (see stopping criteria). This is inspired by the simmulated annealing methodology but also by plant breeding techniques, in which the follow ac funnel approach:
+## The question
 
-![Plant Breeding Strategy](https://github.com/mcrimi/GA_for_TSP_v2/blob/master/plant_breeding.png?raw=true)
+In 2020 I was working with plant breeders. A breeding programme starts with a very large
+number of plants and keeps fewer each year: the *selection funnel*. I gave my genetic
+algorithm a population that shrank the same way, and wrote at the time that the results were
+"not far off" a fixed population, "but I thought it would be fun to try". I never measured it.
 
-In all honesty, the results that I got with this methodology are not far off better from the ones that I would get from a fixed population per generation, but I thought it would be fun to try.
+This rebuild measures it, on national maps whose optimal tours are known, with every method
+given exactly the work the 2020 program spent (269,800 tour evaluations) and 40 runs per
+setting.
 
+## What I found
 
-## Hyper-parameters
-Initial population size = 500
-Baseline of individuals selected for the next generation=  200
-Percentage of crossing between top performant individuals = 1
-Percentage of the crosse altered by random mutations= 0.15
-Next generation selection strategy: Elitism (top ranking individuals)
+Gap above the optimal tour of Qatar (194 cities), same budget for every row:
 
-## Stopping criterion
-MAX_ITERATIONS = 300
+| Setting | Gap |
+|---|---|
+| 2020 program: partially mapped crossover, swap mutation, funnel 700 → 200 | 189% |
+| Same, fixed population of the same average size | 187% |
+| Same, fixed population of 50 | 141% |
+| Inversion mutation instead of swap (fixed 100) | 27% |
+| Edge recombination and inversion (fixed 100) | 24% |
+| 2-opt local search from random tours, no breeding | 1.6% |
+| Edge recombination, inversion and 2-opt on every child | 0.11% |
+| Same, with a funnel 80 → 10 | 0.07%, optimal in 22 of 40 runs |
 
+1. **The funnel is not what matters.** It behaves like a fixed population of about its average
+   size: indistinguishable on Qatar, five points better on Djibouti. Choosing a better size
+   is worth far more, and the best size differs from map to map.
+2. **Operators that respect edges matter.** A tour's length is a sum over its edges, and the
+   2020 operators preserved city positions instead.
+3. **Two breeding measurements explain the 2020 result.** *Crossing cost*: children of decent
+   parents were 50% longer than their parents under partially mapped crossover, against 9%
+   under edge recombination. *Inbreeding*: by the end of a 2020 run the survivors shared 96% of
+   their edges with the best tour.
+4. **Cross, then refine.** A pedigree breeding programme crosses once and then spends years
+   refining the progeny. The algorithmic counterpart is a memetic algorithm, crossover followed
+   by local search, and it is the change that reaches the optimum.
+5. **With local search the funnel has a narrow use**: best on Qatar when the budget is
+   generous, clearly worse when it is tight (4.0% against 1.0% on Uruguay, 734 cities).
 
-## Ideas for extension
-- Use regular crossover + penalty functions instead of using partially mapped crossover
-- Introduce dominance-codominance models
-- Other crossover operators: Cycle Crossover Operator, Order Crossover Operator
+## Was the idea original?
 
+No, and the report says so with references:
 
-## Results
+- Breeding theory in genetic algorithms: the Breeder Genetic Algorithm of Mühlenbein and
+  Schlierkamp-Voosen (1993), with truncation selection and the breeder's equation.
+- Populations that change size: GAVaPS, Arabas, Michalewicz and Mulawka (1994).
+- Linear shrinking specifically: L-SHADE, Tanabe and Fukunaga (2014).
+- Cheap screening for many, careful evaluation for few: successive halving in hyperparameter
+  search. That is where the funnel pays, because evaluation there is expensive. A tour's
+  length is cheap and exact.
 
-### Djbouti
+What survives is the habit of measuring what a cross does.
 
-Genes: [20, 23, 26, 25, 22, 24, 15, 13, 9, 8, 7, 3, 5, 11, 12, 28, 37, 38, 33, 34, 36, 31, 27, 19, 18, 17, 16, 6, 4, 2, 1, 10, 14, 21, 29, 30, 32, 35]
-- Best Fitness: 7684
-- Pop. Individuals: 400
-- Evaluations: 269796
-- Time (seconds): 86.76117780000004
+## How it is built
 
-![Djbouti](https://github.com/mcrimi/GA_for_TSP_v2/blob/master/Djbouti_convergence.png?raw=true)
+```
+src/tsp_ga/
+  engine.py        the algorithm, compiled with Numba
+  ga.py            settings, population schedules, breeding diagnostics
+  instance.py      TSPLIB parsing, distances, neighbour lists
+  rng.py           counter-based random numbers, identical in Python and JavaScript
+  experiments.py   every comparison at the 2020 budget
+  export.py        JSON for the page, and fixtures for the parity test
+web/               the page; js/engine.js is a line-for-line port of engine.py
+report/            the analysis (Quarto)
+data/              Djibouti, Qatar and Uruguay, from the University of Waterloo
+archive/           the 2020 program and its README, unchanged
+```
 
+The browser runs the same algorithm as Python, not an approximation of it. Distances are
+integers and both sides draw random numbers from the same integer hash, so a test replays runs
+exported from Python and requires the JavaScript engine to match every logged number in every
+generation.
 
-### Qatar
+The 2020 Qatar run took 8.5 minutes. It now takes about a fifth of a second, which is what
+makes several thousand runs affordable.
 
-Genes: [93, 103, 157, 192, 181, 177, 164, 138, 137, 134, 126, 139, 144, 153, 165, 170, 162, 147, 118, 14, 17, 71, 141, 150, 145, 156, 130, 101, 82, 109, 102, 122, 129, 121, 115, 96, 95, 78, 80, 113, 114, 112, 110, 67, 41, 55, 52, 56, 39, 47, 34, 61, 133, 135, 105, 69, 75, 161, 172, 182, 132, 127, 99, 94, 63, 20, 65, 85, 86, 98, 104, 119, 167, 155, 175, 189, 191, 180, 185, 193, 173, 174, 186, 179, 169, 163, 140, 142, 146, 149, 194, 188, 187, 176, 184, 123, 124, 43, 46, 29, 28, 22, 12, 10, 73, 116, 131, 136, 160, 143, 128, 120, 100, 68, 89, 111, 62, 59, 1, 6, 13, 23, 25, 26, 24, 45, 66, 58, 53, 48, 49, 54, 38, 15, 19, 151, 158, 148, 117, 92, 84, 50, 30, 35, 42, 44, 81, 154, 183, 190, 178, 168, 166, 171, 159, 152, 125, 90, 36, 2, 3, 9, 27, 32, 31, 83, 97, 106, 107, 108, 79, 77, 70, 74, 57, 64, 37, 40, 51, 18, 21, 33, 60, 88, 91, 87, 76, 72, 8, 16, 4, 7, 11, 5]	
+## Run it
 
-- Best Fitness: 26013
-- Pop. Individuals: 400
-- Evaluations: 269796
-- Time (seconds): 509.2694081000001
+```bash
+uv sync --group report
+uv run pytest                   # 50 tests
+uv run tsp-ga run qa194 --crossover er --mutation inversion --local-search
+uv run tsp-ga build             # all experiments, about 7 minutes on 12 cores
+npm test                        # 22 tests, including Python-to-JavaScript parity
+QUARTO_PYTHON=.venv/bin/python quarto render report/index.qmd
+python3 -m http.server -d web   # the page, at http://localhost:8000
+```
 
-![Qatar](https://github.com/mcrimi/GA_for_TSP_v2/blob/master/Qatar_convergence.png?raw=true)
+## Limits
 
+Three maps and one main budget. Mutation rate and selection scheme are the 2020 ones. This is
+a study of an idea, not a competitive solver: Concorde solves all three maps to optimality.
+
+## Data and licence
+
+Maps are the [national TSPs](https://www.math.uwaterloo.ca/tsp/world/countries.html) collected
+by William Cook at the University of Waterloo, with their published optimal tour lengths. Code
+is MIT licensed.

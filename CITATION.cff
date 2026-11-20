@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite it."
+title: "Breeding a shorter route: a genetic algorithm for the travelling salesman problem and a test of the plant-breeding funnel"
+authors:
+  - family-names: Crimi
+    given-names: Mariano
+version: 2.0.0
+date-released: 2026-11-20
+url: "https://marianocrimi.com/tsp/"
+repository-code: "https://github.com/mcrimi/GA_for_TSP_v2"
+license: MIT
+references:
+  - type: article
+    title: "Predictive models for the Breeder Genetic Algorithm I. Continuous parameter optimization"
+    authors:
+      - family-names: Mühlenbein
+        given-names: Heinz
+      - family-names: Schlierkamp-Voosen
+        given-names: Dirk
+    journal: "Evolutionary Computation"
+    volume: 1
+    issue: 1
+    start: 25
+    end: 49
+    year: 1993
+    doi: "10.1162/evco.1993.1.1.25"

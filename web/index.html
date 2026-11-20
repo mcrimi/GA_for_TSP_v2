@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Breeding a shorter route · Mariano Crimi</title>
+<meta name="description" content="A genetic algorithm for the travelling salesman problem, and a test of the plant-breeding idea I built into it in 2020. It runs in your browser.">
+<link rel="canonical" href="https://marianocrimi.com/tsp/">
+<meta property="og:title" content="Breeding a shorter route">
+<meta property="og:description" content="A genetic algorithm for the travelling salesman problem, read through plant breeding.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://marianocrimi.com/tsp/">
+<meta property="og:image" content="https://marianocrimi.com/assets/img/og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%231B1B19'/%3E%3Cpath d='M3.5 12V4l4.5 5 4.5-5v8' fill='none' stroke='%23ECEBE6' stroke-width='1.6'/%3E%3C/svg%3E">
+<script>
+  // Follow the reading settings chosen on marianocrimi.com (same storage key).
+  (function () {
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem("mcrimi-site") || "{}") || {}; } catch (e) {}
+    var root = document.documentElement;
+    root.dataset.theme = s.paper === "night" ? "dark" : "light";
+    if (s.paper === "grey") root.dataset.paper = "grey";
+    root.dataset.font = s.font === "garamond" || s.font === "charter" ? s.font : "literata";
+    if (s.size === "s" || s.size === "l") root.dataset.size = s.size;
+  })();
+</script>
+<link rel="stylesheet" href="tsp.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="in gut">
+    <a class="mark" href="/#portfolio" aria-label="Back to the portfolio on marianocrimi.com">← Portfolio</a>
+    <nav class="nav" aria-label="On this page">
+      <a href="#play">Run it</a>
+      <a href="#idea">The idea</a>
+      <a href="#findings">Findings</a>
+      <a href="#method">Method</a>
+    </nav>
+    <div class="status">
+      <button class="aa" id="aa" type="button" aria-expanded="false" aria-controls="panel" aria-label="Paper settings">Aa</button>
+    </div>
+    <div class="panel" id="panel" hidden>
+      <div class="grp">
+        <span class="label">Paper</span>
+        <div class="seg" role="group" aria-label="Paper">
+          <button type="button" data-paper="warm">Warm</button>
+          <button type="button" data-paper="grey">Grey</button>
+          <button type="button" data-paper="night">Night</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap gut">
+
+  <section id="play" aria-labelledby="play-h">
+    <p class="label">Genetic algorithm · Python</p>
+    <h1 id="play-h">Breeding a shorter route</h1>
+    <p class="dek">In 2020 I gave a route-finding algorithm a trick from plant breeding: start with a crowd of candidates and narrow it to a few. Here I test that trick properly. It does little. What plant breeders actually do works very well.</p>
+
+    <div class="sim">
+      <form id="controls" class="controls" aria-label="Settings">
+        <div class="field wide">
+          <span class="label">Start from</span>
+          <div class="presets" id="presets" role="group" aria-label="Presets"></div>
+        </div>
+        <div id="segments" style="display:contents"></div>
+        <label class="field wide">
+          <span class="row"><span class="label">Tours kept each generation</span><output id="out-size" for="in-size"></output></span>
+          <input type="range" id="in-size" name="size" min="0" max="6" step="1">
+        </label>
+        <div class="field wide">
+          <div class="buttons">
+            <button type="button" class="btn primary" id="run">Run</button>
+            <button type="button" class="btn" id="step">Step</button>
+            <button type="button" class="btn" id="reset">New start</button>
+          </div>
+        </div>
+        <div class="field wide">
+          <span class="label">Speed</span>
+          <div class="seg" id="speed" role="group" aria-label="Speed">
+            <button type="button" data-pace="60" aria-pressed="false">Slow</button>
+            <button type="button" data-pace="20" aria-pressed="true">Steady</button>
+            <button type="button" data-pace="0.01" aria-pressed="false">Fast</button>
+          </div>
+        </div>
+        <noscript><p>This page runs an algorithm in your browser and needs JavaScript. The <a href="report/">full analysis</a> reads without it.</p></noscript>
+      </form>
+
+      <div class="result">
+        <div class="stage">
+          <figure class="plate">
+            <canvas id="map" width="600" height="600" role="img" aria-label="The cities, and the shortest round trip through all of them found so far"></canvas>
+            <figcaption class="cap">The best round trip found so far. Each square is a city.</figcaption>
+          </figure>
+          <figure class="plate">
+            <canvas id="progress" width="760" height="600" role="img" aria-label="How much longer the best tour is than the shortest possible, against work done"></canvas>
+            <figcaption class="cap">How much longer the best tour is than the shortest possible one, as the run spends its work. Every run gets the same amount: what the 2020 program used.</figcaption>
+          </figure>
+        </div>
+        <figure class="plate strip">
+          <canvas id="funnel" width="1200" height="132" role="img" aria-label="The number of tours kept in each generation"></canvas>
+          <figcaption class="cap" id="funnel-cap">The population.</figcaption>
+        </figure>
+        <dl class="readout">
+          <div><dt class="label">Generation</dt><dd id="r-gen">0</dd></div>
+          <div><dt class="label">Best tour</dt><dd id="r-length">–</dd></div>
+          <div><dt class="label">Over the shortest</dt><dd id="r-gap">–</dd></div>
+          <div><dt class="label">Inbreeding</dt><dd id="r-kin">–</dd></div>
+        </dl>
+        <p class="verdict" id="verdict" aria-live="polite">Loading the maps.</p>
+        <p class="fine" id="verdict-fine"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="idea" aria-labelledby="idea-h">
+    <h2 id="idea-h">The idea</h2>
+    <div class="prose">
+      <p>A salesman has to visit every city once and come home. Which order makes the trip shortest? With 194 cities there are more possible orders than atoms in the universe, so nobody checks them all. A <em>genetic algorithm</em> breeds an answer instead:</p>
+    </div>
+    <ol class="rules">
+      <li><span>Start with a few hundred random tours: the <strong>population</strong>.</span></li>
+      <li><span>Keep the shortest ones. This is <strong>selection</strong>.</span></li>
+      <li><span>Pair the survivors at random and <strong>cross</strong> each pair: build a child tour out of pieces of both parents.</span></li>
+      <li><span>Now and then <strong>mutate</strong> a child: change it a little at random.</span></li>
+      <li><span>Survivors and children are the next generation. Repeat.</span></li>
+    </ol>
+    <div class="prose">
+      <p>I was working with plant breeders at the time, and a wheat breeding programme has a famous shape. It starts with a couple of million plants and, year after year, keeps fewer of them, until fifty lines go to trial and one becomes a variety. Breeders call it the <em>selection funnel</em>. So I made my population do the same: large at first, shrinking every generation.</p>
+      <p>My write-up at the time was candid: the results were “not far off” what a fixed population gave, “but I thought it would be fun to try”. I never measured it. This page does.</p>
+    </div>
+    <figure class="chart">
+      <svg id="funnel-chart" role="img" aria-labelledby="funnel-chart-cap"></svg>
+      <figcaption id="funnel-chart-cap" class="cap">Three ways to spend the same number of tour evaluations: the 2020 funnel, a fixed population of the same average size, and the funnel turned round.</figcaption>
+    </figure>
+  </section>
+
+  <section id="findings" aria-labelledby="findings-h">
+    <h2 id="findings-h">What I found</h2>
+    <div class="prose">
+      <p>Two things make the test fair. The maps are real countries, and their shortest possible tours are known, so every result can be stated as “this much longer than the best there is”. And every method gets exactly the same amount of work, the <span data-fill="budget">269,800</span> tour evaluations the 2020 program spent. Each figure below is the average of <span data-fill="seeds">40</span> runs.</p>
+    </div>
+
+    <h3>1. The funnel is not what matters</h3>
+    <div class="prose">
+      <p>On Qatar the 2020 program ends <span data-fill="gap-2020">189%</span> above the shortest tour: nearly three times too long. Against a fixed population of the same average size the funnel makes no measurable difference (<span data-fill="same-average-qa">+2 points</span>, an interval that includes zero). Simply choosing a better size does far more: with a <span data-fill="best-fixed-qa">fixed 50</span> and more generations the same program reaches <span data-fill="best-fixed-qa-gap">141%</span>.</p>
+      <p>Djibouti is kinder to the idea. There the funnel beats its same-average rival (<span data-fill="same-average-dj">−5 points</span>), and matches the best fixed size, which on this small map is the largest I tried. So the funnel is not nothing. It behaves like a population of about its average size, sometimes a little better, and it is usually better than growing instead of shrinking. But the size that works best swings from a thousand to a few dozen between two maps, and getting that right is worth far more than the shape.</p>
+    </div>
+    <div class="pair">
+      <figure class="chart">
+        <svg id="sched-qa" role="img" aria-labelledby="sched-qa-cap"></svg>
+        <figcaption id="sched-qa-cap" class="cap">Qatar, 2020 crossover and mutation. Line: fixed populations of each size, with 95% band. Bars: funnels, spanning the sizes they pass through.</figcaption>
+      </figure>
+      <figure class="chart">
+        <svg id="sched-dj" role="img" aria-labelledby="sched-dj-cap"></svg>
+        <figcaption id="sched-dj-cap" class="cap">Djibouti, same settings. Lower is better in both charts.</figcaption>
+      </figure>
+    </div>
+
+    <h3>2. What matters is how tours are crossed, changed and refined</h3>
+    <div class="prose">
+      <p>Keep the budget and change one thing at a time. A mutation that reverses a stretch of the tour, instead of swapping two cities, takes Qatar from <span data-fill="op-pmx-swap">148%</span> to <span data-fill="op-pmx-inv">28%</span>. A crossover that builds children from the parents’ roads, rather than from the positions of cities, reaches <span data-fill="op-er-swap">37%</span> on its own. And letting each child tidy itself up before it is judged, by uncrossing any two roads that cross, brings the answer to within <span data-fill="mem-best">0.1%</span> of the shortest possible.</p>
+      <p>That last step is not a triumph of local tidying alone. Tidying random tours for the same budget, with no breeding at all, stops at <span data-fill="mem-restarts">1.6%</span>. Crossing good tours and then refining the children is what gets the rest.</p>
+    </div>
+    <figure class="chart">
+      <svg id="ladder-chart" role="img" aria-labelledby="ladder-cap"></svg>
+      <figcaption id="ladder-cap" class="cap">Qatar, same budget for every row. The middle three rows use a fixed population of 100. Hatched: no crossing at all.</figcaption>
+    </figure>
+
+    <h3>3. Why the 2020 crossover failed: every cross costs, and the population inbreeds</h3>
+    <div class="prose">
+      <p>Breeders have a word for what goes wrong when two good but different lines are crossed and the offspring are worse than either: the cross broke up combinations that worked. I measured it. Take a population of decent tours, cross random pairs, and compare children with parents. With the 2020 crossover the children are <span data-fill="load-pmx">50%</span> longer than their parents; with the two alternatives, <span data-fill="load-ox">8%</span> and <span data-fill="load-er">9%</span>. Early in a run the difference is starker still: one cross in <span data-fill="odds-pmx">200</span> beats its better parent under the 2020 crossover, against one in <span data-fill="odds-er">4</span> for the crossover that keeps roads. The 2020 crossover hands down <span data-fill="inherit-pmx">79%</span> of the parents’ roads and fills the gaps with random ones, and one random road across Qatar costs as much as several good ones.</p>
+      <p>The second effect follows from the first. If nearly every real cross is a disaster, the only children that survive selection are those of near-identical parents. The population fills with copies of its best member: by the end of a 2020 run the survivors share <span data-fill="kin-pmx">96%</span> of their roads with the best tour. Breeders call this inbreeding, and it ends progress for the same reason in a field as in a program: there is no variation left to select from.</p>
+    </div>
+    <div class="pair">
+      <figure class="chart">
+        <svg id="load-chart" role="img" aria-labelledby="load-cap"></svg>
+        <figcaption id="load-cap" class="cap">The cost of a cross: how much longer children are than their parents. Early: parents about 400% above the shortest tour. Later: about 180%. Qatar.</figcaption>
+      </figure>
+      <figure class="chart">
+        <svg id="kin-chart" role="img" aria-labelledby="kin-cap"></svg>
+        <figcaption id="kin-cap" class="cap">Inbreeding: share of roads the survivors have in common with the best tour, by generation. Qatar, 2020 funnel.</figcaption>
+      </figure>
+    </div>
+
+    <h3>4. What the breeder’s funnel really says</h3>
+    <div class="prose">
+      <p>Looking again at the breeding diagram I had copied, I had read the wrong thing off it. The funnel is not a population that shrinks while it keeps interbreeding. It starts from <em>one</em> cross. Everything after that is generations of sorting out and fixing what the cross produced, with the cheap tests done on the many and the expensive ones on the few.</p>
+      <p>In an algorithm, “cross once, then spend your effort refining the offspring” has a name: a memetic algorithm, a genetic algorithm with local search inside. It is the step that took Qatar from <span data-fill="op-er-inv">24%</span> to <span data-fill="mem-best">0.1%</span>. The breeders were right. My translation was wrong.</p>
+      <p>With refinement in place I gave the shrinking population one more chance, and here the answer depends on how much work there is to spend. With the full budget on Qatar the funnel is the best setting I tried: <span data-fill="mem-funnel">0.07%</span> on average, and the true shortest tour in <span data-fill="mem-funnel-solved">22 of 40</span> runs. With a quarter of the budget it loses to a small fixed population, and on Uruguay, where the same budget has to cover 734 cities, it is four times worse (<span data-fill="uy-funnel">4.0%</span> against <span data-fill="uy-best">1.0%</span>). A wide start is a luxury: worth having when work is plentiful, a waste when it is not.</p>
+      <p>I also tried the funnel’s other half, cheap screening for the many and thorough refinement for the few. It was never the best setting (<span data-fill="mem-staged">0.4%</span> on Qatar).</p>
+    </div>
+    <figure class="chart">
+      <svg id="budget-chart" role="img" aria-labelledby="budget-cap"></svg>
+      <figcaption id="budget-cap" class="cap">Qatar with refinement: distance from the shortest tour as the work allowed grows. The funnel overtakes the fixed populations only at the right-hand end.</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table id="mem-qa" class="data">
+        <caption class="label">Qatar, 194 cities, with refinement, full budget</caption>
+        <thead><tr><th scope="col">Population</th><th scope="col" class="n">Over the shortest</th><th scope="col" class="n">95% interval</th><th scope="col" class="n">Runs that found it</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table id="mem-uy" class="data">
+        <caption class="label">Uruguay, 734 cities, same budget</caption>
+        <thead><tr><th scope="col">Population</th><th scope="col" class="n">Over the shortest</th><th scope="col" class="n">95% interval</th><th scope="col" class="n">Runs that found it</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h3>5. Was it original?</h3>
+    <div class="prose">
+      <p>No, on both counts, though I did not know it then.</p>
+      <p>Bringing breeding to genetic algorithms was done thoroughly in 1993, when Mühlenbein and Schlierkamp-Voosen published the <em>Breeder Genetic Algorithm</em>, with truncation selection and the breeder’s equation for predicting the response to selection. Populations that change size go back at least to Arabas, Michalewicz and Mulawka in 1994. And the exact rule I used, shrinking the population in a straight line over the run, is the “linear population size reduction” of Tanabe and Fukunaga’s L-SHADE, which won a major optimisation competition in 2014.</p>
+      <p>The funnel’s other half, cheap evaluation for many candidates and careful evaluation for few, is how modern hyperparameter search works under the name successive halving. That is the place where the breeding funnel really pays, because there, as in a field trial, measuring a candidate properly is expensive. Measuring a tour is not, which is why the idea had so little to grip on here.</p>
+      <p>What I would keep from the exercise is the breeder’s habit of measuring. How much does a cross cost? How inbred is the population? Those two numbers explained the 2020 result better than anything in the algorithm’s settings.</p>
+    </div>
+  </section>
+
+  <section id="method" aria-labelledby="method-h">
+    <h2 id="method-h">How it was built</h2>
+    <div class="prose">
+      <p>The 2020 version was a single Python script that scored open paths rather than round trips, so its results could not be compared with known answers. This one is a tested package. The inner loops are compiled with Numba: the Qatar run that took eight and a half minutes in 2020 now takes a fifth of a second, which is what makes thousands of runs, and so honest comparisons, affordable.</p>
+      <p>The run at the top of this page is the same algorithm, ported to JavaScript. Distances are whole numbers and both versions take their randomness from one small generator built from integer arithmetic, so the same seed gives the same run in both. A test replays runs exported from Python, generation by generation, and requires the browser version to match every number.</p>
+    </div>
+<pre class="flow" aria-label="Pipeline">engine.py ── the algorithm, compiled with Numba
+ ├─ ga.py            settings, schedules, a breeder's reading of a run
+ ├─ experiments.py   every comparison at the 2020 budget, 40 runs each
+ └─ export.py        experiments.json ──→ charts on this page
+                     fixtures.json    ──→ parity test
+engine.js ── the same algorithm in the browser (Python = JS, exactly)</pre>
+    <ul class="links">
+      <li><a href="report/">Read the full analysis</a><span>the experiments, the breeding measurements and the prior art</span></li>
+      <li><a href="https://github.com/mcrimi/GA_for_TSP_v2" rel="noopener">Source on GitHub</a><span>Python package, tests, this page and the 2020 program</span></li>
+      <li><a href="https://www.math.uwaterloo.ca/tsp/world/countries.html" rel="noopener">The maps</a><span>National travelling salesman problems, University of Waterloo</span></li>
+    </ul>
+    <p class="fine">Built by <a href="/">Mariano Crimi</a>. Results hold for these three maps and this budget. Exact solvers such as Concorde solve all three outright; this is a study of an idea, not a competitive solver.</p>
+  </section>
+
+</main>
+</body>
+</html>
