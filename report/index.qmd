@@ -1,0 +1,383 @@
+---
+title: "Breeding a shorter route"
+subtitle: "A genetic algorithm for the travelling salesman problem, and a test of the plant-breeding funnel"
+author: "Mariano Crimi"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    embed-resources: true
+    theme: none
+    minimal: true
+    css: paper.css
+    include-in-header: header.html
+    include-before-body: before.html
+    html-math-method: mathml
+    highlight-style: none
+    code-fold: true
+    code-summary: "Code"
+    fig-width: 7
+    fig-height: 4.2
+    fig-dpi: 160
+execute:
+  echo: true
+  warning: false
+jupyter: python3
+---
+
+```{python}
+#| include: false
+import json
+import time
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from IPython.display import Markdown
+
+from tsp_ga import Config, load, run
+
+INK = "#1B1B19"
+plt.rcParams.update({
+    "figure.facecolor": "white", "axes.facecolor": "white", "savefig.facecolor": "white",
+    "text.color": INK, "axes.edgecolor": INK, "axes.labelcolor": INK,
+    "xtick.color": INK, "ytick.color": INK, "axes.spines.top": False,
+    "axes.spines.right": False, "axes.linewidth": 0.6, "font.size": 10,
+    "legend.frameon": False, "lines.color": INK, "axes.prop_cycle": plt.cycler(color=[INK]),
+})
+STYLES = ["-", "--", ":", "-."]
+
+root = Path.cwd() if (Path.cwd() / "web").exists() else Path.cwd().parent
+D = json.loads((root / "web" / "data" / "experiments.json").read_text())
+SEEDS, BUDGET = D["seeds"], D["budget"]
+pct = lambda v, d=0: f"{100 * v:.{d}f}%"
+small = lambda v: f"{100 * v:.2f}%"
+arm = lambda rows, name: next(r for r in rows if r["arm"] == name)
+table = lambda df, **kw: Markdown(df.to_markdown(index=False, **kw))
+signed = lambda c: f"{100 * c['difference']:+.1f} ({100 * c['lo']:+.1f} to {100 * c['hi']:+.1f})"
+
+QA, DJ, ER = D["schedules"]["qa194"], D["schedules"]["dj38"], D["schedules_er"]["qa194"]
+OPS = D["operators"]["qa194"]
+MEM = {(m["instance"], m["budget"]): m for m in D["memetic"]}
+MQ, MU = MEM[("qa194", BUDGET)], next(m for m in D["memetic"] if m["instance"] == "uy734")
+F2020 = "Funnel 700 to 200 (2020)"
+H = lambda stage, x: next(r for r in D["heritability"] if r["stage"] == stage and r["crossover"] == x)
+```
+
+## Summary
+
+In 2020 I wrote a genetic algorithm for the travelling salesman problem and gave it an idea
+borrowed from plant breeding: a *selection funnel*, a population that starts large and shrinks
+every generation. I never tested whether it helped. This report does, and it also asks whether
+the idea was new.
+
+```{python}
+#| echo: false
+best_q = arm(QA["arms"], QA["verdict"]["best_fixed"])
+best_m = arm(MQ["arms"], MQ["verdict"]["best_fixed"])
+fun_m = arm(MQ["arms"], "Funnel 80 to 10")
+Markdown(f"""
+- **The funnel does little.** At the 2020 budget on Qatar (194 cities) the original program
+  ends {pct(arm(QA['arms'], F2020)['gap'])} above the shortest tour. Against a fixed population
+  of the same average size the difference is {signed(QA['verdict']['funnel_vs_same_average'])}
+  percentage points. Choosing a better fixed size ({QA['verdict']['best_fixed'].lower()})
+  gives {pct(best_q['gap'])}.
+- **The operators matter far more.** Swapping the mutation for an inversion takes Qatar from
+  {pct(arm(OPS, 'pmx+swap')['gap'])} to {pct(arm(OPS, 'pmx+inversion')['gap'])}; edge
+  recombination with inversion reaches {pct(arm(OPS, 'er+inversion')['gap'])}.
+- **Two breeding measurements explain why.** With partially mapped crossover, children of
+  decent parents are {pct(H('After 100 generations', 'pmx')['load'])} longer than their
+  parents, and the population ends {pct(D['traces']['arms'][0]['kinship'][-1])} inbred.
+- **Cross, then refine.** Adding 2-opt local search to every child brings Qatar to
+  {small(best_m['gap'])} of optimal at the same budget. Local search with no breeding stops
+  at {small(MQ['restarts']['gap'])}.
+- **With local search the funnel has a narrow use.** It is the best setting on Qatar at the
+  full budget ({small(fun_m['gap'])}, optimal in {fun_m['solved'] * fun_m['n']:.0f} of
+  {fun_m['n']} runs) and a poor one whenever work is scarce: on Uruguay (734 cities) it ends
+  at {small(arm(MU['arms'], 'Funnel 80 to 10')['gap'])} against
+  {small(arm(MU['arms'], MU['verdict']['best_fixed'])['gap'])} for a small fixed population.
+- **None of it was new.** Breeding theory entered genetic algorithms in 1993, and shrinking
+  the population linearly is a published, competition-winning technique from 2014.
+""")
+```
+
+The [web page](../) runs the same algorithm in the browser.
+
+## The problem and the test
+
+A tour visits every city once and returns to the start. The instances are three of the
+[national TSPs](https://www.math.uwaterloo.ca/tsp/world/countries.html) from the University of
+Waterloo. Distances are Euclidean, rounded to the nearest whole number as TSPLIB specifies,
+and the optimal tour of each is known. Every result is reported as a **gap**: how much longer
+the tour is than the optimal one.
+
+```{python}
+#| echo: false
+table(pd.DataFrame([{"Instance": v["title"], "Optimal tour": f"{v['optimum']:,}"} for v in D["instances"].values()]))
+```
+
+The algorithm keeps the best `s` tours each generation (truncation selection) and makes `s`
+children. For each child, two survivors are picked at random and crossed both ways; each of
+the two offspring is mutated with probability 0.15, and the shorter one is kept. The 2020
+funnel sets `s = 200 + 500 (1 − g / 300)` in generation `g`.
+
+**The budget.** Comparing methods by generations would be meaningless when the population
+changes size. The unit here is the *tour evaluation*. The 2020 settings spend
+`{python} f"{BUDGET:,}"` of them, and every method below gets exactly that. Local search is
+charged too: checking one 2-opt move costs 4/*n* of an evaluation, since it reads four
+distances where a full evaluation reads *n*. Runs stop when the budget is spent.
+
+Every figure is the mean over `{python} SEEDS` seeds, with a 95% bootstrap interval. Comparisons are paired
+by seed.
+
+```{python}
+#| code-summary: "One run of the 2020 settings"
+qa = load("qa194")
+run(qa, Config(), 1)  # compile
+t = time.perf_counter()
+r = run(qa, Config(), 1)
+elapsed = time.perf_counter() - t
+Markdown(f"Seed 1: tour of **{r.length:,}**, {pct(r.gap)} above the optimal {qa.optimum:,}, "
+         f"in {elapsed:.2f} s. The 2020 script took 8.5 minutes for the same run.")
+```
+
+One correction to 2020: the original scored an open path, without the leg home, so its lengths
+could not be compared with published optima. Its README reported 26,013 for Qatar; on closed
+tours the same settings average `{python} f"{9352 * (1 + arm(QA['arms'], F2020)['gap']):,.0f}"`.
+The rebuild reproduces the old program, flaw for flaw, before changing anything.
+
+## Does the funnel help?
+
+Three comparisons answer different questions: the funnel against a fixed population of its own
+average size (does the *shape* matter?), against the best fixed size (would tuning one number
+do better?), and against itself reversed (does the *direction* matter?).
+
+```{python}
+#| echo: false
+#| fig-cap: "Gap at the 2020 budget, partially mapped crossover and swap mutation. Line: fixed populations. Horizontal bars: funnels, spanning the sizes they pass through."
+fig, axes = plt.subplots(1, 2, figsize=(8, 3.6))
+for ax, block, title in zip(axes, (QA, DJ), ("Qatar", "Djibouti")):
+    fixed = [a for a in block["arms"] if a["schedule"] == "fixed"]
+    x = [a["sizes"][0] for a in fixed]
+    ax.plot(x, [100 * a["gap"] for a in fixed], "-s", ms=3, lw=1)
+    ax.fill_between(x, [100 * a["lo"] for a in fixed], [100 * a["hi"] for a in fixed], color=INK, alpha=0.12, lw=0)
+    for a, ls in zip([a for a in block["arms"] if a["schedule"] != "fixed"], STYLES):
+        ax.plot(a["sizes"], [100 * a["gap"]] * 2, ls=ls, lw=2, marker="|", ms=7, label=a["arm"])
+    ax.set_xscale("log"); ax.set_title(title, loc="left", fontsize=10)
+    ax.set_xlabel("Tours kept each generation"); ax.set_ylabel("Gap (%)")
+axes[1].legend(fontsize=7)
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+#| echo: false
+rows = []
+for label, block in (("Qatar, 2020 operators", QA), ("Djibouti, 2020 operators", DJ), ("Qatar, edge recombination + inversion", ER)):
+    v = block["verdict"]
+    rows.append({"Setting": label, "2020 funnel": pct(arm(block["arms"], F2020)["gap"], 1),
+                 "Best fixed size": f"{v['best_fixed'].replace('Fixed ', '')} ({pct(arm(block['arms'], v['best_fixed'])['gap'], 1)})",
+                 "vs same average size": signed(v["funnel_vs_same_average"]),
+                 "vs best fixed": signed(v["funnel_vs_best_fixed"]),
+                 "vs reversed": signed(v["funnel_vs_reverse"])})
+table(pd.DataFrame(rows))
+```
+
+Differences are in percentage points of gap, funnel minus the alternative, so negative favours
+the funnel.
+
+The shape has a small effect at most. On Qatar with the 2020 operators it is
+indistinguishable from a fixed population of the same average size. On Djibouti, and on Qatar
+with better operators, it beats that rival by five or six points, and it beats the reversed
+funnel in two cases of three. So shrinking is, if anything, the right direction. But the best
+fixed size beats the funnel by about fifty points on Qatar under either set of operators, and
+the best size itself moves from 1,000 on Djibouti to 20–50 on Qatar. Population size is the
+parameter that matters, and the funnel is one more way of not having tuned it.
+
+## What does help
+
+```{python}
+#| echo: false
+names = {"pmx": "Partially mapped (2020)", "ox": "Order", "er": "Edge recombination"}
+rows = [{"Crossover": names[x], "Swap mutation (2020)": pct(arm(OPS, f"{x}+swap")["gap"], 1),
+         "Inversion mutation": pct(arm(OPS, f"{x}+inversion")["gap"], 1)} for x in names]
+table(pd.DataFrame(rows))
+```
+
+Qatar, fixed population of 100, same budget. Both changes are the same idea. A tour's length
+is a sum over its **edges**, the roads between consecutive cities. Inversion reverses a stretch
+of the tour and changes two edges. Swapping two cities changes four. Edge recombination builds
+a child almost entirely from edges of its parents. Partially mapped crossover preserves the
+*positions* of cities, which mean nothing in a round trip.
+
+## A breeder's measurements
+
+Here the breeding analogy earns its keep. Three quantities from quantitative genetics can be
+measured on a genetic algorithm directly.
+
+**Crossing cost.** Take a population, cross 5,000 random pairs with no mutation and no
+selection, and compare offspring with the mean of their parents. A positive value means the
+cross itself does damage, which selection must then repair.
+
+```{python}
+#| echo: false
+rows = [{"Parents": f"{h['stage']} ({pct(h['parent_gap'])} gap)", "Crossover": names[h["crossover"]].replace(" (2020)", ""),
+         "Parental edges inherited": pct(h["inherited"]), "Offspring longer than parents by": pct(h["load"], 1),
+         "Offspring beating the better parent": pct(h["better_than_parents"], 1)}
+        for h in D["heritability"] if h["stage"] != "Random tours"]
+table(pd.DataFrame(rows))
+```
+
+Among random tours all three crossovers are harmless, because there is nothing to break. Once
+the parents are any good, partially mapped crossover makes children
+`{python} pct(H('After 30 generations', 'pmx')['load'])` to
+`{python} pct(H('After 100 generations', 'pmx')['load'])` longer than their parents. About a
+fifth of a child's edges are new and random, and a random edge across Qatar is many times
+longer than a good one. Early in a run, one such cross in
+`{python} f"{1 / H('After 30 generations', 'pmx')['better_than_parents']:.0f}"` beats its
+better parent, against one in
+`{python} f"{1 / H('After 30 generations', 'er')['better_than_parents']:.0f}"` for edge
+recombination.
+
+**Inbreeding.** The share of edges that the survivors have in common with the best tour.
+
+```{python}
+#| echo: false
+#| fig-cap: "Inbreeding over a run on Qatar with the 2020 funnel, by crossover. Mean of 20 runs."
+fig, ax = plt.subplots(figsize=(6.4, 3.4))
+for t, ls in zip(D["traces"]["arms"][:3], STYLES):
+    ax.plot(t["generation"], [100 * k for k in t["kinship"]], ls=ls, lw=1.2, label=t["arm"])
+ax.set_xlabel("Generation"); ax.set_ylabel("Edges shared with the best tour (%)"); ax.legend(fontsize=8)
+plt.tight_layout(); plt.show()
+```
+
+The two measurements are one story. When nearly every cross between different parents fails,
+the only offspring that survive truncation are those of near-identical parents, which are
+near-copies. The population collapses onto its best member and the algorithm degenerates into
+a slow mutation-only search. This also explains why small populations did best with the 2020
+operators: if crossover contributes nothing, more generations of mutation is the better use of
+the budget.
+
+A caution on the third quantity. I also estimated heritability by regressing offspring length
+on mid-parent length. It comes out high for all three crossovers (0.7 and above), including the
+one that fails, because a child of long parents is long whatever else happens. In this setting
+heritability does not separate good operators from bad ones; crossing cost does. The same
+point was made, in different terms, by
+Manderick, de Weger and Spiessens (1991),
+who used parent–offspring fitness correlation to rank operators.
+
+## Cross, then refine
+
+The breeding funnel I copied in 2020 does not describe a population that shrinks while it
+keeps interbreeding. A pedigree programme makes its crosses once, and then spends years
+selecting within the progeny and fixing them, with cheap tests on the many early on and
+expensive trials on the few at the end. The nearest thing in an optimiser is to follow each
+cross with refinement of the offspring: a *memetic algorithm*. Here the refinement is 2-opt
+with neighbour lists (try reconnecting each city to one of its eight nearest neighbours; keep
+any change that shortens the tour; repeat until none does).
+
+```{python}
+#| echo: false
+def mem_table(block):
+    names = ["Fixed 5", "Fixed 10", "Fixed 20", "Fixed 40", "Fixed 80", "Funnel 80 to 10",
+             "Steep funnel 200 to 5", "Steep funnel, effort 1 to full", "Fixed 20, partially mapped", "Fixed 20, order"]
+    rows = [arm(block["arms"], n) for n in names] + [block["restarts"]]
+    return table(pd.DataFrame([{"Population": a["arm"], "Gap": small(a["gap"]),
+                                "95% interval": f"{small(a['lo'])} to {small(a['hi'])}",
+                                "Optimal runs": f"{a['solved'] * a['n']:.0f} of {a['n']}"} for a in rows]))
+Markdown(f"**Qatar, {BUDGET:,} evaluations.** Edge recombination and inversion unless stated.")
+```
+
+```{python}
+#| echo: false
+mem_table(MQ)
+```
+
+```{python}
+#| echo: false
+Markdown(f"**Uruguay, 734 cities, same budget.**")
+```
+
+```{python}
+#| echo: false
+mem_table(MU)
+```
+
+```{python}
+#| echo: false
+#| fig-cap: "Qatar with local search: gap against the work allowed."
+fig, ax = plt.subplots(figsize=(6.4, 3.4))
+qs = sorted((m for m in D["memetic"] if m["instance"] == "qa194"), key=lambda m: m["budget"])
+bx = [m["budget"] for m in qs]
+for name, ls in zip(["Fixed 10", "Fixed 40", "Funnel 80 to 10"], STYLES):
+    ax.plot(bx, [100 * arm(m["arms"], name)["gap"] for m in qs], ls=ls, lw=1.2, marker="s", ms=3, label=name)
+ax.plot(bx, [100 * m["restarts"]["gap"] for m in qs], ls=STYLES[3], lw=1.2, marker="s", ms=3, label="No breeding")
+ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel("Tour evaluations allowed"); ax.set_ylabel("Gap (%)"); ax.legend(fontsize=8)
+plt.tight_layout(); plt.show()
+```
+
+Four things follow.
+
+1. Local search is worth more than every other change put together, and it is not doing the
+   work alone: 2-opt from random starts, with no breeding, is more than ten times further from
+   optimal at the full budget.
+2. With local search the choice of crossover nearly stops mattering. Refinement repairs the
+   damage of a bad cross.
+3. The funnel becomes the best setting on Qatar at the full budget, though its advantage over
+   the best fixed population
+   (`{python} signed(MQ['verdict']['best_funnel_vs_best_fixed'])` points) is within noise. At
+   a quarter or a sixteenth of the budget, and on Uruguay, where the same budget is spread
+   over 734 cities, it is clearly worse than a small fixed population. A wide start pays only
+   when there is work to spare.
+4. The other half of the breeder's funnel, cheap screening early and thorough refinement late
+   ("effort 1 to full"), was never the best setting.
+
+## Was it original?
+
+No. I did not know the literature in 2020; this is what it already contained.
+
+| Idea in the 2020 project | Prior work |
+|---|---|
+| Apply breeding practice to a genetic algorithm | Mühlenbein and Schlierkamp-Voosen, [Predictive models for the Breeder Genetic Algorithm](https://doi.org/10.1162/evco.1993.1.1.25), *Evolutionary Computation* 1(1), 1993. Truncation selection, the breeder's equation, response to selection and heritability. |
+| A population whose size changes during the run | Arabas, Michalewicz and Mulawka, GAVaPS: a genetic algorithm with varying population size, *IEEE ICEC* 1994, pp. 73–78. |
+| Shrinking it linearly | Tanabe and Fukunaga, Improving the search performance of SHADE using linear population size reduction, *IEEE CEC* 2014, pp. 1658–1665 (L-SHADE, winner of the CEC 2014 competition). |
+| Operators judged by parent–offspring resemblance | Manderick, de Weger and Spiessens, The genetic algorithm and the structure of the fitness landscape, *ICGA* 1991, pp. 143–150. |
+| Crossover followed by local search | Memetic algorithms, from Moscato (1989); for the TSP, edge-preserving crossover with local search is the basis of the strongest evolutionary solvers. |
+
+The funnel's other half, cheap evaluation for many candidates and careful evaluation for a
+few survivors, is the principle of successive halving and Hyperband in hyperparameter search.
+That is where the breeding funnel is at home, because there, as in a field trial, evaluating a
+candidate properly is expensive and a rough evaluation is informative. A tour's length is exact
+and cheap, so there is nothing for the funnel to economise on.
+
+What I would defend from the original is the instinct, not the mechanism. Breeders measure
+what their crosses do. Crossing cost and inbreeding, measured on the 2020 program, diagnose it
+in two numbers.
+
+## Limits
+
+- Three instances, of 38, 194 and 734 cities, and one budget with two smaller ones on Qatar.
+  The conclusions about population size in particular are budget-dependent, as the Uruguay
+  result shows.
+- Mutation probability stayed at the 2020 value of 0.15 and selection stayed truncation. A
+  funnel might interact with either.
+- Funnels were compared at a few shapes, not optimised. Neither were the fixed populations
+  beyond a grid of sizes.
+- This is a study of an idea, not a competitive solver. Concorde solves all three instances
+  to optimality; Lin–Kernighan-style local search would beat 2-opt.
+- Intervals are bootstrap intervals over `{python} SEEDS` seeds and are not corrected for the number of
+  comparisons.
+
+## Reproducing this
+
+```bash
+uv sync --group report
+uv run pytest
+uv run tsp-ga build        # every experiment; writes web/data/experiments.json
+npm test                   # includes the Python-to-JavaScript parity test
+QUARTO_PYTHON=.venv/bin/python quarto render report/index.qmd
+```
+
+Random numbers come from a counter-based generator (MurmurHash3's 32-bit finaliser applied to
+seed, stream and counter), implemented identically in Python and JavaScript, so a seed
+identifies a run in both.

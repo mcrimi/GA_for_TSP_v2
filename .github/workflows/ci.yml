@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --locked --group report
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Python tests (engine, instances, findings, export)
+        run: uv run pytest -q
+
+      - name: Run every experiment end to end, on two seeds
+        run: uv run tsp-ga build --seeds 2 --out build/smoke
+
+      - name: Export fresh fixtures for the parity test
+        run: uv run tsp-ga build --fixtures-only
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: JavaScript tests, including Python-to-JS parity on the fresh export
+        run: npm test
+
+      - name: Syntax-check the page scripts
+        run: for f in web/js/*.js; do node --check "$f"; done
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Render the report from the committed 40-seed results
+        run: QUARTO_PYTHON="$PWD/.venv/bin/python" quarto render report/index.qmd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: |
+            web
+            report/index.html
