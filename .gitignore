@@ -10,3 +10,4 @@ report/*_files/
 report/.jupyter_cache/
 node_modules/
 dist/
+build/
